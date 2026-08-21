@@ -1,19 +1,16 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 import argparse
-import csv
+import datetime
+import json
 import os
-import platform
-import sys
-from pathlib import Path
+import pathlib
 
 # --- IMPORT UNTUK KOMUNIKASI SOCKET ---
 import socket
-import json
-import datetime
-import time
+import sys
+from pathlib import Path
 
 import torch
-import pathlib
 
 # Fix Path untuk Windows
 temp = pathlib.PosixPath
@@ -25,27 +22,33 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))
 
-from ultralytics.utils.plotting import Annotator, colors, save_one_box
+from ultralytics.utils.plotting import Annotator, colors
+
 from models.common import DetectMultiBackend
-from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadStreams
 from utils.general import (
-    LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements,
-    colorstr, cv2, increment_path, non_max_suppression, print_args, scale_boxes,
-    strip_optimizer, xyxy2xywh,
+    LOGGER,
+    Profile,
+    check_img_size,
+    cv2,
+    non_max_suppression,
+    scale_boxes,
+    xyxy2xywh,
 )
 from utils.torch_utils import select_device, smart_inference_mode
+
 
 @smart_inference_mode()
 def run(
     weights=ROOT / "yolov5s.pt",
-    source=ROOT / "0", # Default ke webcam
+    source=ROOT / "0",  # Default ke webcam
     data=ROOT / "data/coco128.yaml",
     imgsz=(640, 640),
     conf_thres=0.25,
     iou_thres=0.45,
     max_det=1000,
     device="",
-    view_img=True, # Langsung aktifkan view
+    view_img=True,  # Langsung aktifkan view
     save_txt=False,
     save_format=0,
     save_csv=False,
@@ -68,21 +71,28 @@ def run(
     vid_stride=1,
 ):
     source = str(source)
-    save_img = not nosave and not source.endswith(".txt")
-    webcam = source.isnumeric() or source.endswith(".streams") or (source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://")) and not Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS))
-    
+    not nosave and not source.endswith(".txt")
+    webcam = (
+        source.isnumeric()
+        or source.endswith(".streams")
+        or (
+            source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://"))
+            and not Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
+        )
+    )
+
     # --- KONFIGURASI SOCKET ---
     SUBSCRIBER_IP = "192.168.137.1"
     PORT = 9999
     msg_id = 1
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1.0) 
+        sock.settimeout(1.0)
         sock.connect((SUBSCRIBER_IP, PORT))
         LOGGER.info(f"Connected to server {SUBSCRIBER_IP}")
     except Exception as e:
         LOGGER.error(f"Socket Error: {e}")
-        sock = None 
+        sock = None
 
     # Load Model
     device = select_device(device)
@@ -101,7 +111,7 @@ def run(
     # Run inference
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))
     seen, dt = 0, (Profile(device=device), Profile(device=device), Profile(device=device))
-    
+
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
             im = torch.from_numpy(im).to(model.device)
@@ -112,16 +122,16 @@ def run(
 
         with dt[1]:
             pred = model(im, augment=augment, visualize=False)
-        
+
         with dt[2]:
             pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
 
         for i, det in enumerate(pred):
             seen += 1
             if webcam:
-                p, im0 = path[i], im0s[i].copy()
+                _p, im0 = path[i], im0s[i].copy()
             else:
-                p, im0 = path, im0s.copy()
+                _p, im0 = path, im0s.copy()
 
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
             detections_to_send = []
@@ -134,26 +144,21 @@ def run(
                 for *xyxy, conf, cls in reversed(det):
                     c = int(cls)
                     label = names[c]
-                    
+
                     # --- HITUNG KOORDINAT ---
                     # xywh: [x_center, y_center, width, height]
                     xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4))).view(-1).tolist()
-                    
+
                     x_pusat = round(xywh[0], 1)
                     y_pusat = round(xywh[1], 1)
                     lebar = round(xywh[2], 1)
                     tinggi = round(xywh[3], 1)
-                    luas = lebar*tinggi
-                    
+                    luas = lebar * tinggi
 
                     # Simpan data objek
-                    detections_to_send.append({
-                        "object": label,
-                        "conf": round(float(conf), 2),
-                        "x": x_pusat,
-                        "y": y_pusat,
-                        "luas": luas
-                    })
+                    detections_to_send.append(
+                        {"object": label, "conf": round(float(conf), 2), "x": x_pusat, "y": y_pusat, "luas": luas}
+                    )
 
                     # Cetak koordinat ke terminal agar anda bisa lihat langsung
                     print(f"Detected: {label} | Pusat: ({x_pusat}, {y_pusat}) | Size: {lebar}x{tinggi}")
@@ -167,7 +172,7 @@ def run(
                 payload = {
                     "id": msg_id,
                     "time": datetime.datetime.now().strftime("%H:%M:%S"),
-                    "data": detections_to_send
+                    "data": detections_to_send,
                 }
                 try:
                     sock.sendall((json.dumps(payload) + "\n").encode())
@@ -183,6 +188,7 @@ def run(
     if sock:
         sock.close()
 
+
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", nargs="+", type=str, default=ROOT / "yolov5s.pt")
@@ -192,7 +198,7 @@ def parse_opt():
     parser.add_argument("--iou-thres", type=float, default=0.45)
     parser.add_argument("--max-det", type=int, default=1000)
     parser.add_argument("--device", default="")
-    parser.add_argument("--view-img", action="store_false") # default sudah true di run()
+    parser.add_argument("--view-img", action="store_false")  # default sudah true di run()
     parser.add_argument("--save-txt", action="store_true")
     parser.add_argument("--classes", nargs="+", type=int)
     parser.add_argument("--project", default=ROOT / "runs/detect")
@@ -204,6 +210,7 @@ def parse_opt():
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1
     return opt
+
 
 if __name__ == "__main__":
     opt = parse_opt()
