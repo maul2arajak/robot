@@ -1,7 +1,8 @@
-import socket
-import json
-import time
 import datetime
+import json
+import socket
+import time
+
 import cv2
 import numpy as np
 
@@ -11,7 +12,7 @@ layer_names = yolo_net.getLayerNames()
 output_layers = [layer_names[i - 1] for i in yolo_net.getUnconnectedOutLayers()]
 
 # Inisialisasi socket
-SUBSCRIBER_IP = "ganti" 
+SUBSCRIBER_IP = "ganti"
 PORT = 9999
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.connect((SUBSCRIBER_IP, PORT))
@@ -24,7 +25,7 @@ while True:
     ret, frame = cap.read()
     if not ret:
         break
-    
+
     # Deteksi objek dengan YOLO
     blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
     yolo_net.setInput(blob)
@@ -39,7 +40,7 @@ while True:
             confidence = scores[class_id]
             if confidence > 0.5:  # Ambil deteksi dengan confidence tinggi
                 # Kirim frame yang terdeteksi ke subscriber
-                ret, buffer = cv2.imencode('.jpg', frame)
+                ret, buffer = cv2.imencode(".jpg", frame)
                 message = {
                     "nama": "Publisher",
                     "user_id": "PUB001",
@@ -47,16 +48,16 @@ while True:
                     "day": datetime.datetime.now().strftime("%A"),
                     "date": datetime.datetime.now().strftime("%Y-%m-%d"),
                     "message_id": msg_id,
-                    "frame": buffer.tobytes()  # Kirim gambar dalam format bytes
+                    "frame": buffer.tobytes(),  # Kirim gambar dalam format bytes
                 }
                 sock.sendall((json.dumps(message) + "\n").encode())
                 msg_id += 1
                 time.sleep(2)  # Delay agar tidak mengirim terlalu cepat
 
-    cv2.imshow('YOLO Detection', frame)
-    
+    cv2.imshow("YOLO Detection", frame)
+
     # Keluar jika tekan 'q'
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 cap.release()
